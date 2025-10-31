@@ -9,6 +9,10 @@
 
 import argparse
 import sys
+import numpy as np
+import imageio
+import cv2
+
 
 from isaaclab.app import AppLauncher
 
@@ -111,6 +115,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    print(env.observation_space)
+    print("hehe"*15)  # doit afficher 52
+
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -131,10 +138,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
-    print(f"[INFO]: Loading model checkpoint from: {resume_path}")
+
+
     # load previously trained model
+
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     ppo_runner.load(resume_path)
+
 
     # obtain the trained policy for inference
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
@@ -166,9 +176,76 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
+            """
+            obs[0][13]=1
+            obs[0][14]=0
+            obs[0][15]=0
+
+            obs[1][13]=1
+            obs[1][14]=0
+            obs[1][15]=0
+            
+            obs[2][13]=0
+            obs[2][14]=0
+            obs[2][15]=1
+
+            obs[3][13]=-1
+            obs[3][14]=0
+            obs[3][15]=0
+
+            obs[4][13]=0
+            obs[4][14]=1
+            obs[4][15]=0
+            """
             actions = policy(obs)
+            """
+            # --- Depth grayscale en temps réel ---
+            cam = env.unwrapped.scene.sensors["realsense"]
+
+            # --- Initialisation (une seule fois) des fenêtres OpenCV ---
+            try:
+                _cv_init
+            except NameError:
+                _cv_init = True
+                cv2.namedWindow("Depth (grayscale)",   cv2.WINDOW_NORMAL)
+                # Taille des fenêtres (modifie à ton goût)
+                TARGET_W, TARGET_H = 960, 720
+                cv2.resizeWindow("Depth (grayscale)",   TARGET_W, TARGET_H)
+                # Position à l'écran (optionnel)
+                cv2.moveWindow("Depth (grayscale)", 1040, 40)
+
+            # ===================== DEPTH (m -> niveaux de gris) =====================
+            depth: torch.Tensor = cam.data.output["distance_to_camera"][0]
+
+            # Nettoyage des valeurs invalides
+            NEAR, FAR = 0.05, 1.50
+            depth = torch.nan_to_num(depth, nan=FAR, posinf=FAR, neginf=NEAR)
+            depth = torch.clamp(depth, NEAR, FAR)
+
+            # Normalisation → proche=0, loin=1
+            d_norm = (depth - NEAR) / (FAR - NEAR)
+
+            # Retourne (num_envs, H, W)
+            #print(d_norm[..., 0].clone())
+            d_u8 = ((1.0 - d_norm) * 255.0 + 0.5).to(torch.uint8)
+
+            # ===================== Affichage (upscale pour confort) =====================
+            TARGET_W, TARGET_H = 960, 720  # ou autre
+            dep_disp = cv2.resize(d_u8.cpu().numpy(), (TARGET_W, TARGET_H), interpolation=cv2.INTER_NEAREST)
+
+
+            cv2.imshow("Depth (grayscale)",   dep_disp)
+
+            # Rafraîchissement & quit
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            """
+
+
+
             # env stepping
             obs, _, _, _ = env.step(actions)
+            
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video

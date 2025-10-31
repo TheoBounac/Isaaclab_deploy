@@ -108,7 +108,7 @@ def track_ang_vel_z_world_exp(
 
 
 def stand_still_joint_deviation_l1(
-    env, command_name: str, command_threshold: float = 0.06, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    env:  ManagerBasedRLEnv, command_name: str, command_threshold: float = 0.06, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
     """Penalize offsets from the default joint positions when the command is very small."""
     command = env.command_manager.get_command(command_name)

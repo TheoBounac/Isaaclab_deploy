@@ -30,7 +30,6 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.actions.joint_pos.scale = 0.25
 
         # event
-        self.events.push_robot = None
         self.events.add_base_mass.params["mass_distribution_params"] = (-1.0, 3.0)
         self.events.add_base_mass.params["asset_cfg"].body_names = "base"
         self.events.base_external_force_torque.params["asset_cfg"].body_names = "base"
@@ -50,15 +49,28 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # rewards
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 0.01
-        self.rewards.undesired_contacts = None
-        self.rewards.dof_torques_l2.weight = -0.0002
-        self.rewards.track_lin_vel_xy_exp.weight = 1.5
+        self.rewards.undesired_contacts.params["sensor_cfg"].body_names = ".*_thigh"
+   
+        self.rewards.track_lin_vel_xy_exp.weight = 2.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75
-        self.rewards.dof_acc_l2.weight = -2.5e-7
+        self.rewards.lin_vel_z_l2.weight =-2
+        self.rewards.ang_vel_xy_l2.weight =-0.05 
+        self.rewards.dof_torques_l2.weight = -0.0004
+        self.rewards.dof_acc_l2.weight = -5e-7
+        self.rewards.action_rate_l2.weight =-0.02 
+        self.rewards.feet_air_time.weight = 1.1
+        self.rewards.stand_still.weight = -1.2
+        self.rewards.flat_orientation_l2.weight = -2.5
+        self.rewards.dof_pos_limits.weight = -0.0004
+        self.rewards.base_height_l2.weight = -0.5
+        self.rewards.joint_deviation_l1.weight = -0.2
+
+        # no height scan
+        self.scene.height_scanner = None
+        self.observations.policy.height_scan = None
 
         # terminations
-        self.terminations.base_contact.params["sensor_cfg"].body_names = "base"
+        self.terminations.base_contact.params["sensor_cfg"].body_names = 'base'
 
 
 @configclass

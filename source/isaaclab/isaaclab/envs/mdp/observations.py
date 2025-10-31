@@ -34,15 +34,67 @@ def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(
     """Root height in the simulation world frame."""
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
+
+    robot_data = env.scene["unitree_go2"].data  
+    joint_pos = robot_data.joint_pos[0].cpu().tolist()  
+    #print("joint"*5)
+    #print(joint_pos)
+
+
     return asset.data.root_pos_w[:, 2].unsqueeze(-1)
 
 
 def base_lin_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
-    """Root linear velocity in the asset's root frame."""
+    #Root linear velocity in the asset's root frame.
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject = env.scene[asset_cfg.name]
+    #print("hauteur")
+    #print(asset.data.root_pos_w[:, 2])
     return asset.data.root_lin_vel_b
+"""
 
+def base_lin_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+ 
+    robot_data = env.scene["unitree_go2"].data  
+    joint_pos = robot_data.joint_pos[0].cpu().tolist()   
+    theta1 = []                      
+    theta2 = []                      
+    theta3 = []                      
+    thetav1 = []                     
+    thetav2 = []                     
+    thetav3 = []  
+
+    theta1.append(-go2_env.joint_pos_input[0][4] + 1.5708)
+    theta2.append(-go2_env.joint_pos_input[0][8] - 1.7 + pi/2)
+    theta3.append(-go2_env.joint_pos_input[0][0])
+    thetav1.append(go2_env.joint_vel_input[0][4])
+    thetav2.append(go2_env.joint_vel_input[0][8])
+    thetav3.append(-go2_env.joint_vel_input[0][0])
+
+    theta1.append(-go2_env.joint_pos_input[0][5] + 1.5708)
+    theta2.append(-go2_env.joint_pos_input[0][9] - 1.7 + pi/2)
+    theta3.append(-go2_env.joint_pos_input[0][1])
+    thetav1.append(go2_env.joint_vel_input[0][5])
+    thetav2.append(go2_env.joint_vel_input[0][9])
+    thetav3.append(-go2_env.joint_vel_input[0][1])
+
+    theta1.append(-go2_env.joint_pos_input[0][6] + 1.5708)
+    theta2.append(-go2_env.joint_pos_input[0][10] - 1.7 + pi/2)
+    theta3.append(-go2_env.joint_pos_input[0][2])
+    thetav1.append(go2_env.joint_vel_input[0][6])
+    thetav2.append(go2_env.joint_vel_input[0][10])
+    thetav3.append(-go2_env.joint_vel_input[0][2])
+
+    theta1.append(-go2_env.joint_pos_input[0][7] + 1.5708)
+    theta2.append(-go2_env.joint_pos_input[0][11] - 1.7 + pi/2)
+    theta3.append(-go2_env.joint_pos_input[0][3])
+    thetav1.append(go2_env.joint_vel_input[0][7])
+    thetav2.append(go2_env.joint_vel_input[0][11])
+    thetav3.append(-go2_env.joint_vel_input[0][3])
+
+    foot = go2_env.foot
+    return asset.data.root_lin_vel_b
+"""
 
 def base_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root angular velocity in the asset's root frame."""
@@ -233,6 +285,14 @@ Sensors.
 """
 
 
+def feet_contact_force(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    asset: Articulation = env.unwrapped.scene[asset_cfg.name].data 
+    # height scan: height = sensor_height - hit_point_z - offset
+    feet=(asset.body_incoming_joint_wrench_b[:, 15:19, 0])/100
+    #print("feet: ")
+    #print(feet)
+    return feet
+
 def height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float = 0.5) -> torch.Tensor:
     """Height scan from the given sensor w.r.t. the sensor's frame.
 
@@ -367,6 +427,77 @@ def image(
 
     return images.clone()
 
+
+def image_profondeur(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("realsense"),
+) -> torch.Tensor:
+
+     # Récupération du capteur
+    cam: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
+
+    # (num_envs, H, W, 1) en général
+    depth: torch.Tensor = cam.data.output["distance_to_camera"]
+
+    # Nettoyage des valeurs invalides
+    NEAR, FAR = 0.05, 1.50
+    depth = torch.nan_to_num(depth, nan=FAR, posinf=FAR, neginf=NEAR)
+    depth = torch.clamp(depth, NEAR, FAR)
+
+    # Normalisation → proche=0, loin=1
+    d_norm = (depth - NEAR) / (FAR - NEAR)
+
+    # Retourne (num_envs, H, W)
+    return d_norm[..., 0].clone()
+
+"""
+import torch
+import torch.nn as nn
+
+class DepthEncoder(nn.Module):
+    #Petit CNN qui encode une depth map (H W 1) en vecteur latent.
+
+    def __init__(self, out_dim=64):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),  # (H/2, W/2)
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), # (H/4, W/4)
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), # (H/8, W/8)
+            nn.ReLU(),
+            nn.Flatten()
+        )
+        # Calcule dimensions après les conv (si entrée 75×75 → sortie 64×10×10 = 6400)
+        self.fc = nn.Linear(64 * (75 // 8) * (75 // 8), out_dim)
+        self.out_dim = out_dim
+
+    def forward(self, x: torch.Tensor):
+        # x attendu: (N, H, W) ou (N, H, W, 1)
+        if x.ndim == 3:
+            x = x.unsqueeze(-1)  # → (N,H,W,1)
+        x = x.permute(0, 3, 1, 2)  # → (N,1,H,W)
+        z = self.encoder(x)
+        return self.fc(z)  # (N, out_dim)
+
+from isaaclab.managers.manager_term_cfg import ObservationTermCfg
+from isaaclab.managers import ManagerTermBase
+
+class depth_features(ManagerTermBase):
+    #Encodeur CNN entraîné end-to-end pour la profondeur.
+
+    def __init__(self, cfg: ObservationTermCfg, env):
+        super().__init__(cfg, env)
+        self.encoder = DepthEncoder(out_dim=64).to(env.device)
+
+    def __call__(self, env, sensor_cfg=None, **kwargs):
+        depth = env.scene.sensors["realsense"].data.output["distance_to_camera"]  # (N,H,W,1)
+        NEAR, FAR = 0.05, 1.50
+        depth = torch.nan_to_num(depth, nan=FAR, posinf=FAR, neginf=NEAR)
+        depth = torch.clamp(depth, NEAR, FAR)
+        d_norm = (depth - NEAR) / (FAR - NEAR)  # normalisation [0,1]
+        return self.encoder(d_norm)
+"""
 
 class image_features(ManagerTermBase):
     """Extracted image features from a pre-trained frozen encoder.

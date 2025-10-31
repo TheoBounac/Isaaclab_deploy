@@ -565,6 +565,41 @@ def randomize_actuator_gains(
             actuator.damping[env_ids] = damping
             if isinstance(actuator, ImplicitActuator):
                 asset.write_joint_damping_to_sim(damping, joint_ids=actuator.joint_indices, env_ids=env_ids)
+    
+    view  = asset.root_physx_view
+    coeffs_stiff = view.get_dof_stiffnesses()  
+    coeffs_damp = view.get_dof_dampings()  
+    """
+    print("coeffs_stiff")
+    print(coeffs_stiff)
+    print("coeffs_damp")
+    print(coeffs_damp)
+
+    print("asset.actuators.items()")
+    print(asset.actuators.items())
+    
+
+    asset = env.scene["robot"]
+
+    for name, act in asset.actuators.items():
+        print(f"\n=== Actuator '{name}' — {type(act).__name__} ===")
+
+        # mapping des DOF que cet actionneur contrôle
+        print("joint_indices:", act.joint_indices)
+
+        # gains réellement utilisés par le modèle d'actionneur
+        print("stiffness shape:", tuple(act.stiffness.shape))
+        print("damping   shape:", tuple(act.damping.shape))
+
+        # si tu veux jeter un œil à un env en particulier (ex: le 0)
+        i = 0
+        try:
+            print("KP env 0 (premiers 12):", act.stiffness[i, :12].detach().cpu())
+            print("KD env 0 (premiers 12):", act.damping[i, :12].detach().cpu())
+        except Exception as e:
+            print("peek KP/KD failed:", e)
+    """
+
 
 
 def randomize_joint_parameters(
@@ -572,6 +607,7 @@ def randomize_joint_parameters(
     env_ids: torch.Tensor | None,
     asset_cfg: SceneEntityCfg,
     friction_distribution_params: tuple[float, float] | None = None,
+    dynamic_friction_distribution_params: tuple[float, float] | None = None,
     armature_distribution_params: tuple[float, float] | None = None,
     lower_limit_distribution_params: tuple[float, float] | None = None,
     upper_limit_distribution_params: tuple[float, float] | None = None,
@@ -616,9 +652,54 @@ def randomize_joint_parameters(
             operation=operation,
             distribution=distribution,
         )
+        """
+        print("friction_coeff"*8)
+        print(friction_coeff )
+        print("friction_coeff[env_ids[:, None], joint_ids]"*8)
+        print(friction_coeff[env_ids[:, None], joint_ids])
+        print("env_ids")
+        print(env_ids)
+        print("joint_ids")
+        print(joint_ids)
+
+        rows = env_ids
+        values = friction_coeff[rows]
+        print('rows')
+        print(rows)
+        print("values")
+        print(values)
+        
         asset.write_joint_friction_coefficient_to_sim(
             friction_coeff[env_ids[:, None], joint_ids], joint_ids=joint_ids, env_ids=env_ids
         )
+        """
+        asset.write_joint_friction_coefficient_to_sim(
+            friction_coeff[env_ids], joint_ids=joint_ids, env_ids=env_ids
+        )
+
+    # Dynamic joint friction coefficient
+    if dynamic_friction_distribution_params is not None:
+        dynamic_friction_coeff = _randomize_prop_by_op(
+            asset.data.default_joint_friction_coeff.clone(),
+            dynamic_friction_distribution_params,
+            env_ids,
+            joint_ids,
+            operation=operation,
+            distribution=distribution,
+        )
+        asset.write_joint_dynamic_friction_coefficient_to_sim(
+            dynamic_friction_coeff[env_ids], joint_ids=joint_ids, env_ids=env_ids
+        )
+
+    view  = asset.root_physx_view
+    coeffs = view.get_dof_friction_coefficients()  
+    """
+    print("coeffs")
+    print(coeffs)
+    """
+
+
+        
 
     # joint armature
     if armature_distribution_params is not None:
@@ -630,7 +711,12 @@ def randomize_joint_parameters(
             operation=operation,
             distribution=distribution,
         )
+        """
         asset.write_joint_armature_to_sim(armature[env_ids[:, None], joint_ids], joint_ids=joint_ids, env_ids=env_ids)
+        """
+        print("armature")
+        print(armature)
+        asset.write_joint_armature_to_sim(armature, joint_ids=joint_ids, env_ids=env_ids)
 
     # joint position limits
     if lower_limit_distribution_params is not None or upper_limit_distribution_params is not None:

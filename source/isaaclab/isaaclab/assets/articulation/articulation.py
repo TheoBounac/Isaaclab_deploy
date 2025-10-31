@@ -867,6 +867,8 @@ class Articulation(AssetBase):
             friction_props = self.root_physx_view.get_dof_friction_properties()
             friction_props[physx_env_ids.cpu(), :, 0] = self._data.joint_friction_coeff[physx_env_ids, :].cpu()
 
+
+
     def write_joint_dynamic_friction_coefficient_to_sim(
         self,
         joint_dynamic_friction_coeff: torch.Tensor | float,

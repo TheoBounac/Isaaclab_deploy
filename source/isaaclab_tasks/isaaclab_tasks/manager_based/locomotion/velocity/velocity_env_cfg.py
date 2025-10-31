@@ -25,6 +25,17 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
+from isaaclab.assets import AssetBaseCfg
+import isaaclab.sim as sim_utils
+from pxr import UsdGeom
+
+
+# +++ imports capteurs caméra + spawn pinhole +++
+from isaaclab.sensors.camera import CameraCfg                             # [IsaacLab]
+from isaaclab.sim import PinholeCameraCfg                                 # [IsaacLab]
+
+
+
 ##
 # Pre-defined configs
 ##
@@ -72,6 +83,43 @@ class MySceneCfg(InteractiveSceneCfg):
         mesh_prim_paths=["/World/ground"],
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    
+    """
+    # --- CAMÉRA Au DESSUS DE LA BASE ---
+    realsense = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base/RealSense",
+        # Pose de la caméra par rapport au lien "base"
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.33, 0.0, 0.09),   # avance/hausse la cam selon ton montage
+            # quaternion (w,x,y,z), convention ROS par défaut (avant +Z)
+            rot = (0.30071, -0.64085, 0.64085, -0.30071) # Ry(+90°)
+,
+        ),
+        # ce que tu veux sortir
+        data_types=["rgb", "distance_to_camera"],  # "depth" aussi possible
+        width=75,
+        height=75,
+        # type d’optique (pinhole standard) — utilise les défauts ou mets tes intrinsics
+        spawn=sim_utils.PinholeCameraCfg(),
+    )
+    
+    
+    # --- Objet de debug à la place de la caméra ---
+    realsense_marker = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base/RealSense/RealSense_marker",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.05, 0.01, 0.01),  # X, Y, Z dimensions en m
+            physics_material=None,
+            visual_material=sim_utils.MdlFileCfg(
+                mdl_path=f"{ISAAC_NUCLEUS_DIR}/Materials/Base/Colors/Black.mdl"
+            ),
+        ),
+    )
+    """
+
+
+
+
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
@@ -93,14 +141,14 @@ class CommandsCfg:
 
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
-        resampling_time_range=(10.0, 10.0),
+        resampling_time_range=(1, 4),
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
-        heading_command=True,
+        heading_command=False,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(1, 1), lin_vel_y=(0, 0), ang_vel_z=(0, 0), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -121,16 +169,29 @@ class ObservationsCfg:
         """Observations for policy group."""
 
         # observation terms (order preserved)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
+        foot = ObsTerm(func=mdp.feet_contact_force)
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.3, n_max=0.3))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
+    
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
+
+        """
+        # --- Image depth (grayscale, inf remplacé par 0) ---
+        camera_depth = ObsTerm(
+            func=mdp.image_profondeur,
+            params={
+                "sensor_cfg": SceneEntityCfg("realsense"),
+            },
+        )
+        """
+
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
@@ -156,8 +217,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.8, 0.8),
-            "dynamic_friction_range": (0.6, 0.6),
+            "static_friction_range": (3, 5),
+            "dynamic_friction_range": (1,3),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -218,6 +279,29 @@ class EventCfg:
         },
     )
 
+    joint_internal_friction_reset = EventTerm(
+        func=mdp.randomize_joint_parameters,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg(name="robot"),  # <<< liste explicite, pas slice(None)
+            "friction_distribution_params": (0, 0.1),
+            "operation": "abs",
+            "distribution": "uniform",
+        },
+    )
+
+    actuator_gains_reset = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg(name="robot"),  # <<< liste explicite, pas slice(None)
+            "stiffness_distribution_params": (25, 40),
+            "damping_distribution_params": (0.5, 0.5),
+            "operation": "abs",
+            "distribution": "uniform",
+        },
+    )
+
     # interval
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
@@ -239,11 +323,16 @@ class RewardsCfg:
         func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     # -- penalties
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,                                        
+        weight=-1.5,                                                     
+        params={"target_height": 0.32},                                  
+        )   
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
         weight=0.125,
@@ -253,14 +342,22 @@ class RewardsCfg:
             "threshold": 0.5,
         },
     )
+    
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH"), "threshold": 1.0},
+        weight=-3.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_thigh", ".*_calf"]), "threshold": 1.0},
     )
+    
+    stand_still = RewTerm(func=mdp.stand_still_joint_deviation_l1, 
+                          weight = -0.1, 
+                          params={
+                                "command_name": "base_velocity",
+                          })
     # -- optional penalties
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.01)
+    joint_deviation_l1 = RewTerm(func=mdp.joint_deviation_l1, weight =-1)
 
 
 @configclass
@@ -305,11 +402,11 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4
-        self.episode_length_s = 20.0
+        self.decimation = 5
+        self.episode_length_s = 10.0
         # simulation settings
         self.sim.dt = 0.005
-        self.sim.render_interval = self.decimation
+        self.sim.render_interval =  self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
         # update sensor update periods
@@ -327,3 +424,7 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
         else:
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = False
+
+        if getattr(self.scene, "realsense", None) is not None:
+            self.scene.realsense.update_period = self.decimation * self.sim.dt
+
