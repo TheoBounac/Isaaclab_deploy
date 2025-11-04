@@ -56,7 +56,7 @@ For detailed Isaac Sim installation instructions, please refer to
 
     ```
     cd ..
-    git clone https://github.com/isaac-sim/IsaacLab.git
+    git clone https://github.com/TheoBounac/Isaaclab_deploy.git
     cd isaaclab
     ```
 
