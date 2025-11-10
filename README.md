@@ -57,7 +57,7 @@ For detailed Isaac Sim installation instructions, please refer to
     ```
     cd ..
     git clone https://github.com/TheoBounac/Isaaclab_deploy.git
-    cd isaaclab
+    cd Isaaclab_deploy
     ```
 
 4. Set up symlink in Isaac Lab
